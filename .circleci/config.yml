@@ -1,0 +1,34 @@
+version: 2.1
+description: puremp3
+
+jobs:
+  build:
+    docker:
+      - image: circleci/rust:1.34.2
+    steps:
+      - checkout
+      - restore_cache:
+          key: project-cache
+      - run:
+          name: Desktop Build
+          command: |
+            sudo apt-get update
+            sudo apt-get -y install libasound2-dev # Required for cpal crate on Linux
+            rustup toolchain install stable
+            rustup run stable rustc --version --verbose
+            rustup run stable cargo --version --verbose
+            rustup run stable cargo build --all-targets
+            rustup run stable cargo test
+      - run:
+          name: Wasm32 Build
+          command: |
+            rustup toolchain install stable
+            rustup target add wasm32-unknown-unknown
+            rustup run stable rustc --version --verbose
+            rustup run stable cargo --version --verbose
+            rustup run stable cargo build --target=wasm32-unknown-unknown
+      - save_cache:
+          key: project-cache
+          paths:
+            - "~/.cargo"
+            - "./target"
