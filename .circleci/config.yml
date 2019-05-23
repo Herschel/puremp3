@@ -23,7 +23,7 @@ jobs:
           name: Wasm32 Build
           command: |
             rustup toolchain install stable
-            rustup target add wasm32-unknown-unknown
+            rustup target add --toolchain stable wasm32-unknown-unknown
             rustup run stable rustc --version --verbose
             rustup run stable cargo --version --verbose
             rustup run stable cargo build --target=wasm32-unknown-unknown
