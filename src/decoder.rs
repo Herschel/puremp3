@@ -1,11 +1,11 @@
 use crate::error::{Error, Mp3Error};
-use crate::tables::SCALE_FACTOR_SIZES;
+use crate::tables::{LFS_INTENSITY_STEREO_TABLE, LFS_TABLE, SCALE_FACTOR_SIZES};
 use bitstream_io::{BigEndian, BitReader};
 use byteorder::ReadBytesExt;
 use std::io::Read;
 
-const MAX_CHANNELS: usize = 2;
-const NUM_GRANULES: usize = 2;
+pub const MAX_CHANNELS: usize = 2;
+pub const MAX_GRANULES: usize = 2;
 
 pub struct Decoder {
     frame_buffer: [u8; 4096],
@@ -122,7 +122,12 @@ pub fn read_frame_header<R: Read>(mut data: R) -> Result<FrameHeader, Error> {
         (0b10_00, MpegVersion::Mpeg2_5) => SampleRate::Hz8000,
         _ => return Err(Error::Mp3Error(Mp3Error::InvalidData("Invalid bitrate"))),
     };
-    let sample_rate_table = ((bytes[0] & 0b0000_1100) >> 2) as usize;
+    let sample_rate_table = ((bytes[0] & 0b0000_1100) >> 2) as usize
+        + match version {
+            MpegVersion::Mpeg1 => 0,
+            MpegVersion::Mpeg2 => 3,
+            MpegVersion::Mpeg2_5 => 6,
+        };
 
     let padding = bytes[0] & 0b10 != 0;
 
@@ -153,7 +158,13 @@ pub fn read_frame_header<R: Read>(mut data: R) -> Result<FrameHeader, Error> {
         data.read_u8()?;
     }
 
-    let data_size = (144 * bitrate.bps() / sample_rate.hz() + if padding { 1 } else { 0 }
+    let bits_per_sample = match version {
+        MpegVersion::Mpeg1 => 144,
+        MpegVersion::Mpeg2 => 72,
+        MpegVersion::Mpeg2_5 => 72,
+    };
+    let data_size = (bits_per_sample * bitrate.bps() / sample_rate.hz()
+        + if padding { 1 } else { 0 }
         - if crc { 2 } else { 0 }
         - 4) as usize;
 
@@ -191,6 +202,43 @@ pub struct FrameHeader {
     pub emphasis: Emphasis,
     pub sample_rate_table: usize,
     pub data_size: usize,
+}
+
+impl FrameHeader {
+    fn side_data_len(&self) -> usize {
+        match self.layer {
+            MpegLayer::Layer3 => {
+                if self.channels == Channels::Mono && self.version != MpegVersion::Mpeg1 {
+                    9
+                } else if self.channels != Channels::Mono && self.version == MpegVersion::Mpeg1 {
+                    32
+                } else {
+                    17
+                }
+            }
+            _ => unimplemented!(),
+        }
+    }
+
+    fn num_granules(&self) -> usize {
+        if self.version == MpegVersion::Mpeg1 {
+            2
+        } else {
+            1
+        }
+    }
+
+    fn is_intensity_stereo(&self) -> bool {
+        if let Channels::JointStereo {
+            intensity_stereo: true,
+            ..
+        } = self.channels
+        {
+            true
+        } else {
+            false
+        }
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -290,7 +338,7 @@ pub enum SampleRate {
 }
 
 impl SampleRate {
-    fn hz(self) -> u32 {
+    pub fn hz(self) -> u32 {
         match self {
             SampleRate::Hz8000 => 8_000,
             SampleRate::Hz11025 => 11_025,
@@ -344,48 +392,57 @@ impl Default for BlockType {
 fn read_side_info<R: Read>(mut data: R, header: &FrameHeader) -> Result<SideInfo, Error> {
     let mut info: SideInfo = Default::default();
     let mut bytes = [0u8; 32];
-    let size = if header.channels.num_channels() == 1 {
-        17
-    } else {
-        32
-    };
+    let size = header.side_data_len();
     data.read_exact(&mut bytes[..size])?;
 
     let mut reader = BitReader::endian(&bytes[..], BigEndian);
-    info.main_data_begin = reader.read(9)?;
 
-    // Skip private bits.
-    if header.channels == Channels::Mono {
-        reader.skip(5)?;
+    if header.version == MpegVersion::Mpeg1 {
+        info.main_data_begin = reader.read(9)?;
+
+        // Skip private bits.
+        if header.channels == Channels::Mono {
+            reader.skip(5)?;
+        } else {
+            reader.skip(3)?;
+        }
+
+        for scfsi in &mut info.scfsi[..header.channels.num_channels()] {
+            for band in scfsi.iter_mut() {
+                *band = reader.read_bit()?;
+            }
+        }
     } else {
-        reader.skip(3)?;
-    }
+        info.main_data_begin = reader.read(8)?;
 
-    for scfsi in &mut info.scfsi[..header.channels.num_channels()] {
-        for band in scfsi.iter_mut() {
-            *band = reader.read_bit()?;
+        // Skip private bits.
+        if header.channels == Channels::Mono {
+            reader.skip(1)?;
+        } else {
+            reader.skip(2)?;
         }
     }
 
-    for granule in &mut info.granules {
-        *granule = read_granule_side_info(&mut reader, header.channels.num_channels())?;
+    for granule in &mut info.granules[..header.num_granules()] {
+        *granule = read_granule_side_info(&header, &mut reader)?;
     }
 
     Ok(info)
 }
 
 fn read_granule_side_info<R: Read>(
+    header: &FrameHeader,
     reader: &mut BitReader<R, BigEndian>,
-    num_channels: usize,
 ) -> Result<GranuleSideInfo, Error> {
     let mut info: GranuleSideInfo = Default::default();
-    for ch in 0..num_channels {
-        info.channels[ch] = read_granule_channel_side_info(reader)?;
+    for channel_side_info in &mut info.channels[0..header.channels.num_channels()] {
+        *channel_side_info = read_granule_channel_side_info(header, reader)?;
     }
     Ok(info)
 }
 
 fn read_granule_channel_side_info<R: Read>(
+    header: &FrameHeader,
     reader: &mut BitReader<R, BigEndian>,
 ) -> Result<GranuleChannelSideInfo, Error> {
     let mut info: GranuleChannelSideInfo = Default::default();
@@ -396,7 +453,12 @@ fn read_granule_channel_side_info<R: Read>(
         return Err(Error::Mp3Error(Mp3Error::InvalidData("big_values > 288")));
     }
     info.global_gain = reader.read(8)?;
-    info.scalefac_compress = reader.read(4)?;
+    let scalefac_compress_len = if header.version == MpegVersion::Mpeg1 {
+        4
+    } else {
+        9
+    };
+    info.scalefac_compress = reader.read(scalefac_compress_len)?;
 
     let window_switching = reader.read_bit()?;
     if window_switching {
@@ -451,8 +513,13 @@ fn read_granule_channel_side_info<R: Read>(
         info.region1_count = reader.read(3)?;
     }
 
-    info.preflag = reader.read_bit()?;
-    info.scalefac_scale = reader.read_bit()?;
+    info.preflag = if header.version == MpegVersion::Mpeg1 {
+        reader.read_bit()?
+    } else {
+        info.scalefac_compress >= 500
+    };
+
+    info.scalefac_scale = reader.read_bit()?; // .5f * (1f + frame.ReadBits(1));
     info.count1table_select = reader.read_bit()?;
 
     Ok(info)
@@ -463,7 +530,7 @@ pub struct GranuleChannelSideInfo {
     pub part2_3_length: u16,
     pub big_values: u16,
     pub global_gain: u8,
-    pub scalefac_compress: u8,
+    pub scalefac_compress: u16,
     pub block_type: BlockType,
     pub mixed_block: bool,
     pub subblock_gain: [f32; 3],
@@ -478,7 +545,7 @@ pub struct GranuleChannelSideInfo {
 
 #[derive(Debug, Default)]
 pub struct MainData {
-    pub granules: [MainDataGranule; NUM_GRANULES],
+    pub granules: [MainDataGranule; MAX_GRANULES],
 }
 
 #[derive(Debug, Default)]
@@ -516,11 +583,7 @@ fn read_logical_frame_data<'a, R: Read>(
     header: &FrameHeader,
     side_info: &SideInfo,
 ) -> Result<&'a [u8], Error> {
-    let side_info_size = if header.channels.num_channels() == 1 {
-        17
-    } else {
-        32
-    };
+    let side_info_size = header.side_data_len();
     let main_data_size = header.data_size - side_info_size;
 
     // Copy main_data_begin bytes from the previous frame(s).
@@ -540,94 +603,208 @@ fn read_main_data<R: Read>(
     header: &FrameHeader,
     side_info: &SideInfo,
 ) -> Result<MainData, Error> {
-    let side_info_size = if header.channels.num_channels() == 1 {
-        17
-    } else {
-        32
-    };
-    let _main_data_size = header.data_size - side_info_size;
-
     let mut data: MainData = Default::default();
-    let scfsi = &side_info.scfsi;
-    for g in 0..NUM_GRANULES {
-        let side_info = &side_info.granules[g];
+
+    for g in 0..header.num_granules() {
         for c in 0..header.channels.num_channels() {
-            let mut bits_read = 0;
-            let side_info = &side_info.channels[c];
-            let scfsi = &scfsi[c];
-
-            let (scale_len1, scale_len2) = SCALE_FACTOR_SIZES[side_info.scalefac_compress as usize];
-            if side_info.block_type == BlockType::Short || side_info.block_type == BlockType::Mixed
-            {
-                let granule = &mut data.granules[g];
-                let channel = &mut granule.channels[c];
-                if scale_len1 > 0 {
-                    if side_info.block_type == BlockType::Mixed {
-                        for sfb in &mut channel.scalefac_l[..8] {
-                            *sfb = reader.read(scale_len1 as u32)?;
-                            bits_read += scale_len1;
-                        }
-                    }
-
-                    for sfb in &mut channel.scalefac_s[..6] {
-                        for window in sfb.iter_mut() {
-                            *window = reader.read(scale_len1 as u32)?;
-                            bits_read += scale_len1;
-                        }
-                    }
-                }
-
-                if scale_len2 > 0 {
-                    for sfb in &mut channel.scalefac_s[6..12] {
-                        for window in sfb.iter_mut() {
-                            *window = reader.read(scale_len2 as u32)?;
-                            bits_read += scale_len2;
-                        }
-                    }
-                }
+            let bits_read = if header.version == MpegVersion::Mpeg1 {
+                read_scale_factors(reader, g, c, &side_info, &mut data)?
             } else {
-                // Normal window.
-                let slices = [(0usize, 6usize), (6, 11), (11, 16), (16, 21)];
-                for (i, (start, end)) in slices.iter().enumerate() {
-                    let len = if i < 2 { scale_len1 } else { scale_len2 } as u32;
-                    if len > 0 {
-                        if !scfsi[i] || g == 0 {
-                            let granule = &mut data.granules[g];
-                            let channel = &mut granule.channels[c];
-                            for sfb in &mut channel.scalefac_l[*start..*end] {
-                                *sfb = reader.read(len)?;
-                                bits_read += len;
-                            }
-                        } else if scfsi[i] && g == 1 {
-                            //data.granules[0].channels[c].scalefac_l[*start..*end].copy_from_slice(data.granules[1].channels[c].scalefac_l[i])
-                            for i in *start..*end {
-                                data.granules[0].channels[c].scalefac_l[i] =
-                                    data.granules[1].channels[c].scalefac_l[i];
-                            }
-                        }
-                    }
-                }
-            }
-            let huffman_len = side_info.part2_3_length as u32 - bits_read;
+                read_lfs_scale_factors(
+                    reader,
+                    c == 1 && header.is_intensity_stereo(),
+                    &side_info.granules[g].channels[c],
+                    &mut data.granules[g].channels[c],
+                )?
+            };
+
+            let huffman_len =
+                u32::from(side_info.granules[g].channels[c].part2_3_length) - bits_read;
             data.granules[g].channels[c].count1 = crate::huffman::read_huffman(
                 reader,
                 header,
-                side_info,
+                &side_info.granules[g].channels[c],
                 huffman_len,
                 &mut data.granules[g].channels[c].samples,
             )?;
         }
     }
 
-    // TODO(Herschel): Ancillary data.
+    // TODO(Herschel): Skip ancillary data.
     Ok(data)
+}
+
+pub fn read_scale_factors<R: Read>(
+    reader: &mut BitReader<R, BigEndian>,
+    granule: usize,
+    channel: usize,
+    side_info: &SideInfo,
+    main_data: &mut MainData,
+) -> Result<u32, Error> {
+    let mut bits_read = 0;
+
+    let block_type = side_info.granules[granule].channels[channel].block_type;
+    let scalefac_compress =
+        side_info.granules[granule].channels[channel].scalefac_compress as usize;
+    let (scale_len1, scale_len2) = SCALE_FACTOR_SIZES[scalefac_compress];
+
+    if block_type == BlockType::Short || block_type == BlockType::Mixed {
+        let channel_info = &side_info.granules[granule].channels[channel];
+        let channel_data = &mut main_data.granules[granule].channels[channel];
+        if scale_len1 > 0 {
+            if channel_info.block_type == BlockType::Mixed {
+                for sfb in &mut channel_data.scalefac_l[..8] {
+                    *sfb = reader.read(scale_len1 as u32)?;
+                    bits_read += scale_len1;
+                }
+            }
+
+            for sfb in &mut channel_data.scalefac_s[..6] {
+                for window in sfb.iter_mut() {
+                    *window = reader.read(scale_len1 as u32)?;
+                    bits_read += scale_len1;
+                }
+            }
+        }
+
+        if scale_len2 > 0 {
+            for sfb in &mut channel_data.scalefac_s[6..12] {
+                for window in sfb.iter_mut() {
+                    *window = reader.read(scale_len2 as u32)?;
+                    bits_read += scale_len2;
+                }
+            }
+        }
+    } else {
+        // Normal window.
+        let slices = [(0usize, 6usize), (6, 11), (11, 16), (16, 21)];
+        for (i, (start, end)) in slices.iter().enumerate() {
+            let len = if i < 2 { scale_len1 } else { scale_len2 } as u32;
+            if len > 0 {
+                if granule == 0 || !side_info.scfsi[channel][i] {
+                    for sfb in
+                        &mut main_data.granules[granule].channels[channel].scalefac_l[*start..*end]
+                    {
+                        *sfb = reader.read(len)?;
+                        bits_read += len;
+                    }
+                // TODO(Herschel): Is there a cleaner way to do this?
+                // Granule can copy from previous granule. I would like to write this fn without
+                // using array accesses.
+                } else if granule == 1 && side_info.scfsi[channel][i] {
+                    let (granule0, granules) = main_data.granules.split_first_mut().unwrap();
+                    granule0.channels[channel].scalefac_l[*start..*end]
+                        .copy_from_slice(&granules[0].channels[channel].scalefac_l[*start..*end]);
+                }
+            }
+        }
+    }
+
+    Ok(bits_read)
+}
+
+fn read_lfs_scale_factors<R: Read>(
+    reader: &mut BitReader<R, BigEndian>,
+    intensity_stereo_channel: bool,
+    channel_info: &GranuleChannelSideInfo,
+    channel_data: &mut MainDataChannel,
+) -> Result<u32, Error> {
+    let mut bits_read = 0;
+
+    let lfs_table = if intensity_stereo_channel {
+        &LFS_INTENSITY_STEREO_TABLE
+    } else {
+        &LFS_TABLE
+    };
+    let lfs_table = match channel_info.block_type {
+        BlockType::Short => &lfs_table[1],
+        BlockType::Mixed => &lfs_table[2],
+        _ => &lfs_table[0],
+    };
+
+    let (scale_lens, lfs_table) = if intensity_stereo_channel {
+        let sfc = u32::from(channel_info.scalefac_compress / 2);
+        match sfc {
+            0...179 => ([sfc / 36, (sfc % 36) / 6, sfc % 6, 0], &lfs_table[0]),
+            180...243 => (
+                [
+                    ((sfc - 180) % 64) / 16,
+                    ((sfc - 180) % 16) / 4,
+                    (sfc - 180) % 4,
+                    0,
+                ],
+                &lfs_table[1],
+            ),
+            244...255 => ([(sfc - 244) / 3, (sfc - 244) % 3, 0, 0], &lfs_table[2]),
+            _ => unreachable!(),
+        }
+    } else {
+        let sfc = u32::from(channel_info.scalefac_compress);
+        match sfc {
+            0...399 => (
+                [sfc / 80, (sfc / 16) % 5, (sfc % 16) / 4, sfc & 3],
+                &lfs_table[0],
+            ),
+            400...499 => (
+                [(sfc - 400) / 20, ((sfc - 400) / 4) % 5, (sfc - 400) % 4, 0],
+                &lfs_table[1],
+            ),
+            500...512 => ([(sfc - 500) / 3, (sfc - 500) % 3, 0, 0], &lfs_table[2]),
+            _ => unreachable!(),
+        }
+    };
+
+    // TODO(Herschel): We could avoid using this intermediate buffer.
+    // Write an iterator for reading scalefacs and/or write an iterator
+    // through scalefac_s/l for the block type.
+    let mut scalefacs = [0u8; 54];
+    let mut i = 0;
+    for (&len, &num_blocks) in scale_lens[..].iter().zip(lfs_table.iter()) {
+        assert!(len <= 8);
+        if len > 0 {
+            for _ in 0..num_blocks {
+                scalefacs[i] = reader.read(len)?;
+                bits_read += len;
+                i += 1;
+            }
+        } else {
+            i += num_blocks;
+        }
+    }
+
+    i = 0;
+    if channel_info.block_type == BlockType::Short || channel_info.block_type == BlockType::Mixed {
+        let short_start = if channel_info.block_type == BlockType::Mixed {
+            for sfb in 0..8 {
+                channel_data.scalefac_l[sfb] = scalefacs[i];
+                i += 1;
+            }
+            3
+        } else {
+            0
+        };
+
+        for sfb in short_start..12 {
+            for window in 0..3 {
+                channel_data.scalefac_s[sfb][window] = scalefacs[i];
+                i += 1;
+            }
+        }
+    } else {
+        for sfb in 0..21 {
+            channel_data.scalefac_l[sfb] = scalefacs[i];
+            i += 1;
+        }
+    }
+
+    Ok(bits_read)
 }
 
 pub fn process_frame<R: Read>(
     decoder: &mut Decoder,
     mut reader: R,
     header: &FrameHeader,
-) -> Result<[[f32; 1152]; 2], Error> {
+) -> Result<(usize, [[f32; 1152]; 2]), Error> {
     let side_info = read_side_info(&mut reader, header)?;
     let data_buffer = read_logical_frame_data(decoder, &mut reader, header, &side_info)?;
 
@@ -635,14 +812,15 @@ pub fn process_frame<R: Read>(
     let mut main_data = read_main_data(&mut reader, header, &side_info)?;
 
     let mut out_samples = [[0f32; 1152]; 2];
-    decode_frame(
+    let num_samples = decode_frame(
         decoder,
         header,
         &side_info,
         &mut main_data,
         &mut out_samples,
     )?;
-    Ok(out_samples)
+
+    Ok((num_samples, out_samples))
 }
 
 fn decode_frame(
@@ -651,11 +829,11 @@ fn decode_frame(
     side_info: &SideInfo,
     main_data: &mut MainData,
     out_samples: &mut [[f32; 1152]; 2],
-) -> Result<(), Error> {
+) -> Result<usize, Error> {
     use crate::{requantize, stereo, synthesis};
 
     if header.channels == Channels::Mono {
-        for gr in 0..NUM_GRANULES {
+        for gr in 0..header.num_granules() {
             let side_info = &side_info.granules[gr].channels[0];
             let main_data = &mut main_data.granules[gr].channels[0];
 
@@ -677,7 +855,7 @@ fn decode_frame(
 
         out_samples[1] = out_samples[0];
     } else {
-        for gr in 0..NUM_GRANULES {
+        for gr in 0..header.num_granules() {
             for ch in 0..MAX_CHANNELS {
                 let side_info = &side_info.granules[gr].channels[ch];
                 let main_data = &mut main_data.granules[gr].channels[ch];
@@ -700,7 +878,7 @@ fn decode_frame(
                 );
             }
 
-            for ch in 0..MAX_CHANNELS {
+            for (ch, out_channel) in out_samples.iter_mut().enumerate() {
                 let side_info = &side_info.granules[gr].channels[ch];
                 let main_data = &mut main_data.granules[gr].channels[ch];
 
@@ -714,10 +892,10 @@ fn decode_frame(
                 synthesis::subband_synthesis(
                     &main_data.samples,
                     &mut decoder.sbs_v_vec[ch],
-                    &mut out_samples[ch][gr * 576..(gr + 1) * 576],
+                    &mut out_channel[gr * 576..(gr + 1) * 576],
                 );
             }
         }
     }
-    Ok(())
+    Ok(header.num_granules() * 576)
 }

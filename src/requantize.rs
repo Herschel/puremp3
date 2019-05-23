@@ -173,8 +173,8 @@ pub fn reorder(
         let mut i = if sfb == 0 { 0 } else { 36 };
         while i < 576 {
             if i == next_sfb {
-                for j in 0..3 * window_len {
-                    main_data.samples[3 * band_indices[sfb] as usize + j] = reorder_buffer[j];
+                for (j, &val) in reorder_buffer[0..3 * window_len].iter().enumerate() {
+                    main_data.samples[3 * band_indices[sfb] as usize + j] = val;
                 }
 
                 if i >= main_data.count1 {

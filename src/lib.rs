@@ -38,6 +38,7 @@ impl<R: Read> Mp3Iterator<R> {
 pub struct Frame {
     pub header: decoder::FrameHeader,
     pub samples: [[f32; 1152]; 2],
+    pub num_samples: usize,
 }
 
 impl<R: Read> Iterator for Mp3Iterator<R> {
@@ -56,7 +57,7 @@ impl<R: Read> Iterator for Mp3Iterator<R> {
             }
         }
 
-        let samples = decoder::process_frame(&mut self.decoder, &mut self.reader, &header).ok()?;
-        Some(Frame { header, samples })
+        let (num_samples, samples) = decoder::process_frame(&mut self.decoder, &mut self.reader, &header).ok()?;
+        Some(Frame { header, samples, num_samples })
     }
 }

@@ -1,9 +1,8 @@
-use crate::decoder::{BlockType, FrameHeader, GranuleSideInfo, MainDataGranule};
-use crate::tables::SCALE_FACTOR_BAND_INDICES;
+use crate::decoder::{BlockType, FrameHeader, GranuleSideInfo, MainDataGranule, MpegVersion};
+use crate::tables::{
+    INTENSITY_STEREO_RATIOS, LFS_INTENSITY_STEREO_RATIOS, SCALE_FACTOR_BAND_INDICES,
+};
 use std::f32::consts::FRAC_1_SQRT_2;
-
-#[allow(clippy::unreadable_literal)]
-const RATIOS: [f32; 6] = [0.0, 0.267949, 0.577350, 1.0, 1.732051, 3.732051];
 
 pub fn stereo(
     header: &FrameHeader,
@@ -32,47 +31,81 @@ pub fn stereo(
             if block_type == BlockType::Mixed {
                 for sfb in 0..8 {
                     if band_indices.0[sfb] >= main_data.channels[1].count1 {
-                        stereo_instensity_long(header, sfb, main_data);
+                        stereo_instensity_long(
+                            header,
+                            side_info.channels[0].scalefac_compress,
+                            sfb,
+                            main_data,
+                        );
                     }
                 }
 
                 for sfb in 3..12 {
                     if band_indices.1[sfb] * 3 >= main_data.channels[1].count1 {
-                        stereo_instensity_short(header, sfb, main_data);
+                        stereo_instensity_short(
+                            header,
+                            side_info.channels[0].scalefac_compress,
+                            sfb,
+                            main_data,
+                        );
                     }
                 }
             } else {
                 for sfb in 0..12 {
                     if band_indices.1[sfb] * 3 >= main_data.channels[1].count1 {
-                        stereo_instensity_short(header, sfb, main_data);
+                        stereo_instensity_short(
+                            header,
+                            side_info.channels[0].scalefac_compress,
+                            sfb,
+                            main_data,
+                        );
                     }
                 }
             }
         } else {
             for sfb in 0..21 {
                 if band_indices.0[sfb] >= main_data.channels[1].count1 {
-                    stereo_instensity_long(header, sfb, main_data);
+                    stereo_instensity_long(
+                        header,
+                        side_info.channels[0].scalefac_compress,
+                        sfb,
+                        main_data,
+                    );
                 }
             }
         }
     }
 }
 
-fn stereo_instensity_long(header: &FrameHeader, sfb: usize, main_data: &mut MainDataGranule) {
+fn stereo_instensity_long(
+    header: &FrameHeader,
+    scalefac_compress: u16,
+    sfb: usize,
+    main_data: &mut MainDataGranule,
+) {
     let band_indices = &SCALE_FACTOR_BAND_INDICES[header.sample_rate_table];
     let pos = main_data.channels[0].scalefac_l[sfb] as usize;
     let ratio_l;
     let ratio_r;
-    if pos != 7 {
-        let sfb_start = band_indices.0[sfb] as usize;
-        let sfb_end = band_indices.0[sfb + 1] as usize;
 
-        if pos == 6 {
+    let sfb_start = band_indices.0[sfb] as usize;
+    let sfb_end = band_indices.0[sfb + 1] as usize;
+    if pos != 7 {
+        if header.version != MpegVersion::Mpeg1 {
+            let i = (sfb >> 1) << (scalefac_compress as usize & 1);
+            if sfb & 1 == 0 {
+                ratio_l = 1.0;
+                ratio_r = LFS_INTENSITY_STEREO_RATIOS[i];
+            } else {
+                ratio_l = LFS_INTENSITY_STEREO_RATIOS[i];
+                ratio_r = 1.0;
+            }
+        } else if pos == 6 {
             ratio_l = 1.0;
             ratio_r = 0.0;
         } else {
-            ratio_l = RATIOS[pos] / (1.0 + RATIOS[pos]);
-            ratio_r = 1.0 / (1.0 + RATIOS[pos]);
+            ratio_l = INTENSITY_STEREO_RATIOS[pos][0];
+            ratio_r = INTENSITY_STEREO_RATIOS[pos][1];
         }
 
         for i in sfb_start..sfb_end {
@@ -84,7 +117,12 @@ fn stereo_instensity_long(header: &FrameHeader, sfb: usize, main_data: &mut Main
     }
 }
 
-fn stereo_instensity_short(header: &FrameHeader, sfb: usize, main_data: &mut MainDataGranule) {
+fn stereo_instensity_short(
+    header: &FrameHeader,
+    scalefac_compress: u16,
+    sfb: usize,
+    main_data: &mut MainDataGranule,
+) {
     let band_indices = &SCALE_FACTOR_BAND_INDICES[header.sample_rate_table];
     let window_len = (band_indices.1[sfb + 1] - band_indices.1[sfb]) as usize;
 
@@ -93,15 +131,24 @@ fn stereo_instensity_short(header: &FrameHeader, sfb: usize, main_data: &mut Mai
 
     for win in 0..3 {
         let is_pos = main_data.channels[0].scalefac_s[sfb][win] as usize;
+        let sfb_start = band_indices.1[sfb] as usize * 3 + window_len * win;
+        let sfb_end = sfb_start + window_len;
         if is_pos != 7 {
-            let sfb_start = band_indices.1[sfb] as usize * 3 + window_len * win;
-            let sfb_end = sfb_start + window_len;
-            if is_pos == 6 {
+            if header.version != MpegVersion::Mpeg1 {
+                let i = (sfb >> 1) << (scalefac_compress as usize & 1);
+                if sfb & 1 == 0 {
+                    ratio_l = 1.0;
+                    ratio_r = LFS_INTENSITY_STEREO_RATIOS[i];
+                } else {
+                    ratio_l = LFS_INTENSITY_STEREO_RATIOS[i];
+                    ratio_r = 1.0;
+                }
+            } else if is_pos == 6 {
                 ratio_l = 1.0;
                 ratio_r = 0.0;
             } else {
-                ratio_l = RATIOS[is_pos] / (1.0 + RATIOS[is_pos]);
-                ratio_r = 1.0 / (1.0 + RATIOS[is_pos]);
+                ratio_l = INTENSITY_STEREO_RATIOS[is_pos][0];
+                ratio_r = INTENSITY_STEREO_RATIOS[is_pos][1];
             }
 
             for i in sfb_start..sfb_end {

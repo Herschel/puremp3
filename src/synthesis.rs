@@ -46,9 +46,9 @@ lazy_static! {
     };
     static ref COS_N12: [[f32; 12]; 6] = {
         let mut out = [[0f32; 12]; 6];
-        for p in 0..12 {
-            for m in 0..6 {
-                out[m][p] = f64::cos(
+        for (m, row) in out.iter_mut().enumerate() {
+            for (p, val) in row.iter_mut().enumerate() {
+                *val = f64::cos(
                     PI / 24.0 * f64::from(2 * p as u32 + 1 + 6) * f64::from(2 * m as u32 + 1),
                 ) as f32;
             }
@@ -57,9 +57,9 @@ lazy_static! {
     };
     static ref COS_N36: [[f32; 36]; 18] = {
         let mut out = [[0f32; 36]; 18];
-        for p in 0..36 {
-            for m in 0..18 {
-                out[m][p] = f64::cos(
+        for (m, row) in out.iter_mut().enumerate() {
+            for (p, val) in row.iter_mut().enumerate() {
+                *val = f64::cos(
                     PI / 72.0 * f64::from(2 * p as u32 + 1 + 18) * f64::from(2 * m as u32 + 1),
                 ) as f32;
             }
@@ -152,52 +152,6 @@ fn imdct_win(block_type: usize, samples: &[f32]) -> [f32; 36] {
     out
 }
 
-// pub fn hybrid_synthesis(
-//     mdct_long: &crate::decoder::Mdct,
-//     mdct_short: &crate::decoder::Mdct,
-//     block_type: BlockType,
-//     store: &mut [[f32; 18]; 32],
-//     samples: &mut [f32; 576],
-// ) {
-//     for sb in 0..32 {
-//         let mut out = [0f32; 36];
-//         if block_type == BlockType::Short || block_type == BlockType::Mixed {
-//             let mut short_out = [[0f32; 12]; 3];
-//             let mut short_in = [0f32; 6];
-//             for i in 0..3 {
-//                 mdct_short.process_imdct(
-//                     &samples[sb * 18 + i * 6..sb * 18 + i * 6 + 6],
-//                     &mut short_out[i][..],
-//                 );
-//             }
-//             for i in 0..36 {
-//                 out[i] = if i >= 6 && i < 18 {
-//                     short_out[0][i - 6]
-//                 } else {
-//                     0.0
-//                 };
-//                 out[i] += if i >= 12 && i < 24 {
-//                     short_out[1][i - 12]
-//                 } else {
-//                     0.0
-//                 };
-//                 out[i] += if i >= 24 && i < 30 {
-//                     short_out[2][i - 24]
-//                 } else {
-//                     0.0
-//                 };
-//             }
-//         } else {
-//             mdct_long.process_imdct(&samples[(sb * 18)..(sb * 18 + 18)], &mut out);
-//         }
-
-//         for i in 0..18 {
-//             samples[sb * 18 + i] = out[i] + store[sb][i];
-//             store[sb][i] = out[i + 18];
-//         }
-//     }
-// }
-
 pub fn frequency_inversion(samples: &mut [f32; 576]) {
     for sb in (1..32).step_by(2) {
         for i in (1..18).step_by(2) {
@@ -220,10 +174,10 @@ pub fn subband_synthesis(samples: &[f32; 576], v_vec: &mut [f32; 1024], out: &mu
             s_vec[i] = samples[i * 18 + ss];
         }
 
-        for i in 0..64 {
+        for (i, row) in SBS_N_WIN.iter().enumerate() {
             let mut sum = 0.0;
-            for j in 0..32 {
-                sum += SBS_N_WIN[i][j] * s_vec[j];
+            for (j, &sbs_n_win) in row.iter().enumerate() {
+                sum += sbs_n_win * s_vec[j];
             }
             v_vec[i] = sum;
         }

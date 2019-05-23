@@ -73,13 +73,13 @@ pub fn read_huffman<R: Read>(
     }
 
     if bits_read < len as usize {
-        reader.skip(u32::from(len) - bits_read as u32)?;
+        reader.skip(len - bits_read as u32)?;
     } else if bits_read > len as usize {
         is_pos -= 4;
     }
 
-    for i in is_pos..576 {
-        samples[i] = 0.0;
+    for sample in &mut samples[is_pos..576] {
+        *sample = 0.0;
     }
 
     Ok(is_pos as u32)

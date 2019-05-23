@@ -18,8 +18,9 @@ fn main() -> Result<(), Box<std::error::Error>> {
     let mut cur_sample = 0;
 
     // Produce a sinusoid of maximum amplitude.
-    let mut next_value = std::iter::from_fn(move || {
-        if cur_sample >= 1152 {
+    let sample_rate = frame.header.sample_rate.hz();
+    let next_value = std::iter::from_fn(move || {
+        if cur_sample >= frame.num_samples {
             if let Some(new_frame) = decoder.next() {
                 frame = new_frame;
                 cur_sample = 0;
@@ -35,18 +36,9 @@ fn main() -> Result<(), Box<std::error::Error>> {
 
     let mut source = signal::from_iter(next_value);
     let interp = Linear::from_source(&mut source);
-    let mut out_iter = source.from_hz_to_hz(interp, 44100.0, format.sample_rate.0 as f64);
+    let mut out_iter =
+        source.from_hz_to_hz(interp, sample_rate.into(), format.sample_rate.0.into());
 
-    // let mut data_out = vec![];
-    // while !out_iter.is_exhausted() {
-    //     use byteorder::{LittleEndian, WriteBytesExt};
-    //     use std::io::Write;
-    //     let samples = out_iter.next();
-    //     data_out.write_f32::<LittleEndian>(samples[0])?;
-    //     data_out.write_f32::<LittleEndian>(samples[1])?;
-    // }
-    // std::fs::write("out.pcm", &data_out[..])?;
-    // Ok(())
     event_loop.run(move |_, data| match data {
         cpal::StreamData::Output {
             buffer: cpal::UnknownTypeOutputBuffer::F32(mut buffer),
