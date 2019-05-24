@@ -7,16 +7,16 @@ use std::io::Read;
 pub const MAX_CHANNELS: usize = 2;
 pub const MAX_GRANULES: usize = 2;
 
-pub struct Decoder {
+pub struct DecoderState {
     frame_buffer: [u8; 4096],
     frame_buffer_len: usize,
     store: [[[f32; 18]; 32]; 2],
     sbs_v_vec: [[f32; 1024]; 2],
 }
 
-impl Decoder {
+impl DecoderState {
     pub fn new() -> Self {
-        Self {
+        DecoderState {
             frame_buffer: [0; 4096],
             frame_buffer_len: 0,
             store: [[[0f32; 18]; 32]; 2],
@@ -188,7 +188,7 @@ pub fn read_frame_header<R: Read>(mut data: R) -> Result<FrameHeader, Error> {
     })
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FrameHeader {
     pub version: MpegVersion,
     pub layer: MpegLayer,
@@ -578,7 +578,7 @@ impl std::fmt::Debug for MainDataChannel {
 }
 
 fn read_logical_frame_data<'a, R: Read>(
-    decoder: &'a mut Decoder,
+    decoder: &'a mut DecoderState,
     mut reader: R,
     header: &FrameHeader,
     side_info: &SideInfo,
@@ -801,7 +801,7 @@ fn read_lfs_scale_factors<R: Read>(
 }
 
 pub fn process_frame<R: Read>(
-    decoder: &mut Decoder,
+    decoder: &mut DecoderState,
     mut reader: R,
     header: &FrameHeader,
 ) -> Result<(usize, [[f32; 1152]; 2]), Error> {
@@ -824,7 +824,7 @@ pub fn process_frame<R: Read>(
 }
 
 fn decode_frame(
-    decoder: &mut Decoder,
+    decoder: &mut DecoderState,
     header: &FrameHeader,
     side_info: &SideInfo,
     main_data: &mut MainData,

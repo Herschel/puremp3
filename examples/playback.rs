@@ -1,4 +1,4 @@
-use puremp3::Mp3Iterator;
+use puremp3::Mp3Decoder;
 use sample::interpolate::Linear;
 use sample::{signal, Frame, Sample, Signal};
 
@@ -6,7 +6,6 @@ fn main() -> Result<(), Box<std::error::Error>> {
     let mut args = std::env::args();
     let input_path = args.nth(1).ok_or("Input file required")?;
     let mp3_data = std::fs::read(input_path)?;
-    let mut decoder = Mp3Iterator::new(std::io::Cursor::new(&mp3_data[..]));
 
     let device = cpal::default_output_device().ok_or("Failed to get default output device")?;
     let format = device.default_output_format()?;
@@ -14,30 +13,12 @@ fn main() -> Result<(), Box<std::error::Error>> {
     let stream_id = event_loop.build_output_stream(&device, &format)?;
     event_loop.play_stream(stream_id.clone());
 
-    let mut frame = decoder.next().ok_or("Invalid MP3")?;
-    let mut cur_sample = 0;
+    let (header, samples) = Mp3Decoder::new(std::io::Cursor::new(&mp3_data[..])).samples().ok_or("Invalid MP3 file")?;
 
-    // Produce a sinusoid of maximum amplitude.
-    let sample_rate = frame.header.sample_rate.hz();
-    let next_value = std::iter::from_fn(move || {
-        if cur_sample >= frame.num_samples {
-            if let Some(new_frame) = decoder.next() {
-                frame = new_frame;
-                cur_sample = 0;
-            } else {
-                return None;
-            }
-        }
-
-        let out = [frame.samples[0][cur_sample], frame.samples[1][cur_sample]];
-        cur_sample += 1;
-        Some(out)
-    });
-
-    let mut source = signal::from_iter(next_value);
+    let mut source = signal::from_iter(samples.map(|sample| [sample.0, sample.1]));
     let interp = Linear::from_source(&mut source);
     let mut out_iter =
-        source.from_hz_to_hz(interp, sample_rate.into(), format.sample_rate.0.into());
+        source.from_hz_to_hz(interp, header.sample_rate.hz().into(), format.sample_rate.0.into());
 
     event_loop.run(move |_, data| match data {
         cpal::StreamData::Output {
