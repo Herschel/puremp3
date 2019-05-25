@@ -1,4 +1,4 @@
-use crate::decoder::{BlockType, GranuleChannelSideInfo};
+use crate::types::{BlockType, GranuleChannelSideInfo};
 use crate::tables::{SBS_N_WIN, SYNTH_DTBL};
 use lazy_static::lazy_static;
 use std::f64::consts::PI;
@@ -98,7 +98,7 @@ pub fn antialias(side_info: &GranuleChannelSideInfo, samples: &mut [f32; 576]) {
     }
 }
 
-pub fn hybrid_synthesis(
+pub(crate) fn hybrid_synthesis(
     block_type: BlockType,
     store: &mut [[f32; 18]; 32],
     samples: &mut [f32; 576],

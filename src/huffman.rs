@@ -1,6 +1,7 @@
-use crate::decoder::{BlockType, FrameHeader, GranuleChannelSideInfo};
+use crate::types::{BlockType, GranuleChannelSideInfo};
 use crate::error::Error;
 use crate::tables::*;
+use crate::types::FrameHeader;
 use bitstream_io::{BigEndian, BitReader};
 use std::io::Read;
 

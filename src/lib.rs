@@ -21,8 +21,10 @@ mod requantize;
 mod stereo;
 mod synthesis;
 mod tables;
+mod types;
 
 pub use crate::error::{Error, Mp3Error};
+pub use crate::types::{FrameHeader, MpegVersion, MpegLayer, Emphasis, Channels, BitRate, SampleRate};
 
 use std::io::Read;
 
@@ -38,7 +40,7 @@ use std::io::Read;
 /// `Mp3Decoder` driectly.
 pub fn read_mp3<R: Read>(
     reader: R,
-) -> Result<(decoder::FrameHeader, impl Iterator<Item = (f32, f32)>), Error> {
+) -> Result<(FrameHeader, impl Iterator<Item = (f32, f32)>), Error> {
     let mut decoder = Mp3Decoder::new(reader);
     let mut frame = decoder.next_frame()?;
     let header = frame.header.clone();
@@ -62,7 +64,7 @@ pub fn read_mp3<R: Read>(
 /// Decodes MP3 streams.
 pub struct Mp3Decoder<R: Read> {
     reader: R,
-    state: decoder::DecoderState,
+    state: crate::types::DecoderState,
 }
 
 impl<R: Read> Mp3Decoder<R> {
@@ -70,7 +72,7 @@ impl<R: Read> Mp3Decoder<R> {
     pub fn new(reader: R) -> Self {
         Self {
             reader,
-            state: decoder::DecoderState::new(),
+            state: crate::types::DecoderState::new(),
         }
     }
 
@@ -137,7 +139,7 @@ impl<R: Read> Mp3Decoder<R> {
 /// format).
 pub struct Frame {
     /// The header of this MP3 frame.
-    pub header: decoder::FrameHeader,
+    pub header: FrameHeader,
 
     /// The decoded MP3 samples for the left and right channels.
     /// Each sample is in the range of [-1.0, 1.0].

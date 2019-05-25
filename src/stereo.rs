@@ -1,7 +1,8 @@
-use crate::decoder::{BlockType, FrameHeader, GranuleSideInfo, MainDataGranule, MpegVersion};
+
 use crate::tables::{
     INTENSITY_STEREO_RATIOS, LFS_INTENSITY_STEREO_RATIOS, SCALE_FACTOR_BAND_INDICES,
 };
+use crate::types::{BlockType, FrameHeader, GranuleSideInfo, MainDataGranule, MpegVersion};
 use std::f32::consts::FRAC_1_SQRT_2;
 
 pub fn stereo(
