@@ -1,4 +1,3 @@
-use puremp3::Mp3Decoder;
 use sample::interpolate::Linear;
 use sample::{signal, Frame, Sample, Signal};
 
@@ -13,7 +12,7 @@ fn main() -> Result<(), Box<std::error::Error>> {
     let stream_id = event_loop.build_output_stream(&device, &format)?;
     event_loop.play_stream(stream_id.clone());
 
-    let (header, samples) = Mp3Decoder::new(std::io::Cursor::new(&mp3_data[..])).samples().ok_or("Invalid MP3 file")?;
+    let (header, samples) = puremp3::read_mp3(&mp3_data[..])?;
 
     let mut source = signal::from_iter(samples.map(|sample| [sample.0, sample.1]));
     let interp = Linear::from_source(&mut source);

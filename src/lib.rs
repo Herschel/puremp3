@@ -7,8 +7,8 @@
 //!
 //! ```
 //! let data = std::fs::read("tests/vectors/MonoCBR192.mp3").expect("Could not open file");
-//! let decoder = puremp3::Mp3Decoder::new(&data[..]);
-//! let (_, samples) = decoder.samples().expect("Invalid MP3");
+//! println!("{}", data.len());
+//! let (header, samples) = puremp3::read_mp3(&data[..]).expect("Invalid MP3");
 //! for (left, right) in samples {
 //!     // Operate on samples here
 //! }
@@ -25,6 +25,39 @@ mod tables;
 pub use crate::error::{Error, Mp3Error};
 
 use std::io::Read;
+
+/// Convenience method to decode an MP3.
+/// Returns the first frame header found in the MP3, and an `Iterator` that
+/// yields MP3 `Sample`s`.
+///
+/// Each `Sample` represents one left and right sample at the sample rate of
+/// the MP3. Any invalid data is ignored. The iterator will provide `Sample`s
+/// until there is no more data, or an error occurs.
+///
+/// If you need to handle errors or changes in the format mid-stream, use
+/// `Mp3Decoder` driectly.
+pub fn read_mp3<R: Read>(
+    reader: R,
+) -> Result<(decoder::FrameHeader, impl Iterator<Item = (f32, f32)>), Error> {
+    let mut decoder = Mp3Decoder::new(reader);
+    let mut frame = decoder.next_frame()?;
+    let header = frame.header.clone();
+    let mut i = 0;
+    let iter = std::iter::from_fn(move || {
+        if i >= frame.num_samples {
+            i = 0;
+            frame = if let Ok(frame) = decoder.next_frame() {
+                frame
+            } else {
+                return None;
+            }
+        }
+        let sample = (frame.samples[0][i], frame.samples[1][i]);
+        i += 1;
+        Some(sample)
+    });
+    Ok((header, iter))
+}
 
 /// Decodes MP3 streams.
 pub struct Mp3Decoder<R: Read> {
@@ -69,34 +102,6 @@ impl<R: Read> Mp3Decoder<R> {
         std::iter::from_fn(move || self.next_frame().ok())
     }
 
-    /// Returns an `Iterator` that yields MP3 `Sample`s`.
-    ///
-    /// This is a convenience function that assumes that the format of the MP3 does not
-    /// change mid-stream.
-    ///
-    /// Each `Sample` represents one left and right sample at the sample rate of the MP3.
-    /// Any invalid data is skipped. The iterator will provide `Sample`s until
-    /// there is no more valid MP3 data, or an error occurs.
-    pub fn samples(mut self) -> Option<(decoder::FrameHeader, impl Iterator<Item = (f32, f32)>)> {
-        let mut frame = self.next_frame().ok()?;
-        let header = frame.header.clone();
-        let mut i = 0;
-        let iter = std::iter::from_fn(move || {
-            if i >= frame.num_samples {
-                i = 0;
-                frame = if let Ok(frame) = self.next_frame() {
-                    frame
-                } else {
-                    return None;
-                }
-            }
-            let sample = (frame.samples[0][i], frame.samples[1][i]);
-            i += 1;
-            Some(sample)
-        });
-        Some((header, iter))
-    }
-
     /// Decodes the next MP3 `Frame` in the stream.
     ///
     /// Data is read until a valid `Frame` is found. Invalid data is skipped.
@@ -131,16 +136,18 @@ impl<R: Read> Mp3Decoder<R> {
 /// samples. An MP3 frame contains either 576 or 1152 samples (depending on the
 /// format).
 pub struct Frame {
+    /// The header of this MP3 frame.
     pub header: decoder::FrameHeader,
-    pub samples: [[f32; 1152]; 2],
-    pub num_samples: usize,
-}
 
-/// A sample of sound data in the range [-1.0, 1.0].
-///
-/// Contains values for the left and right channel. In mono streams, the sample
-/// is duplicated for both channels.
-pub struct Sample {
-    pub header: decoder::FrameHeader,
-    pub sample: (f32, f32),
+    /// The decoded MP3 samples for the left and right channels.
+    /// Each sample is in the range of [-1.0, 1.0].
+    /// Only the first `num_samples` entries will contain valid data.
+    /// For mono streams, the data will be duplicated to the left and right
+    /// channels.
+    pub samples: [[f32; 1152]; 2],
+
+    /// The number of samples in the `samples` array.
+    /// This will be either 576 or 1152 samples depending on the
+    /// format of the MP3.
+    pub num_samples: usize,
 }
