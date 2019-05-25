@@ -24,7 +24,9 @@ mod tables;
 mod types;
 
 pub use crate::error::{Error, Mp3Error};
-pub use crate::types::{FrameHeader, MpegVersion, MpegLayer, Emphasis, Channels, BitRate, SampleRate};
+pub use crate::types::{
+    BitRate, Channels, Emphasis, FrameHeader, MpegLayer, MpegVersion, SampleRate,
+};
 
 use std::io::Read;
 

@@ -4,19 +4,42 @@ description: puremp3
 jobs:
   build:
     docker:
-      - image: circleci/rust:1.34.2
+      - image: circleci/rust:1.35
     steps:
       - checkout
       - restore_cache:
           key: project-cache
       - run:
-          name: Desktop Build
+          name: Install dependencies
           command: |
+            # Git LFS
+            # Test MP3s are stored with
+            curl -s https://packagecloud.io/install/repositories/github/git-lfs/script.deb.sh | sudo bash
             sudo apt-get update
-            sudo apt-get -y install libasound2-dev # Required for cpal crate on Linux
+            sudo apt-get install git-lfs
+            git lfs install
+            git lfs pull
+
+            # Alsa needed for cpal crate on Linux
+            sudo apt-get -y install libasound2-dev
+
+            # Rust components
             rustup toolchain install stable
             rustup run stable rustc --version --verbose
             rustup run stable cargo --version --verbose
+
+            rustup component add rustfmt
+            rustfmt --version
+
+            rustup component add clippy
+            cargo clippy --version
+      - run:
+          name: Formatting and style
+          command: |
+            cargo fmt --all -- --check
+      - run:          
+          name: Desktop Build
+          command: |
             rustup run stable cargo build --all-targets
             rustup run stable cargo test
       - run:
