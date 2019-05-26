@@ -7,7 +7,6 @@
 //!
 //! ```
 //! let data = std::fs::read("tests/vectors/MonoCBR192.mp3").expect("Could not open file");
-//! println!("{}", data.len());
 //! let (header, samples) = puremp3::read_mp3(&data[..]).expect("Invalid MP3");
 //! for (left, right) in samples {
 //!     // Operate on samples here
