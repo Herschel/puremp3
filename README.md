@@ -1,8 +1,9 @@
 # puremp3
+[![CircleCI](https://circleci.com/gh/Herschel/puremp3.svg?style=svg)](https://circleci.com/gh/Herschel/puremp3)
 
 An MP3 decoder written in pure Rust.
 
-The motivation for this crate is to create a pure Rust MP3 decoder that easily compiles to the `wasm32-unknown-unknown` target. No claims are made to speed, performance, or compatibility. For a more robust decoder, try [minimp3-rs](https://github.com/germangb/minimp3-rs).
+The motivation for this crate is to create a pure Rust MP3 decoder that easily compiles to the `wasm32-unknown-unknown` target. No claims are made to accuracy, performance, or compatibility. For a more robust decoder, try [minimp3-rs](https://github.com/germangb/minimp3-rs).
 
 ## Support
 
