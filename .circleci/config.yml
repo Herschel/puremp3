@@ -36,6 +36,7 @@ jobs:
       - run:
           name: Formatting and style
           command: |
+            cargo clippy --all
             cargo fmt --all -- --check
       - run:          
           name: Desktop Build
