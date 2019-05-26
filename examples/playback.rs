@@ -1,9 +1,9 @@
-///! MP3 playback example.
-///
-/// Uses puremp3 for MP3 decoding, sample for sample format conversion,
-/// and cpal for audio output.
-///
-/// Usage: `playback file.mp3`
+//! MP3 playback example.
+//!
+//! Uses puremp3 for MP3 decoding, sample for sample format conversion,
+//! and cpal for audio output.
+//!
+//! Usage: `playback file.mp3`
 use sample::{interpolate, signal, Frame, Signal};
 
 fn main() {
