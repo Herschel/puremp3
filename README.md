@@ -2,11 +2,21 @@
 
 An MP3 decoder written in pure Rust.
 
-The motivation for this crate is to create a pure Rust MP3 decoder that easily compiles to the `wasm32-unknown-unknown` target. No claims are made to performance or compatibility. For a more robust decoder, try [minimp3-rs](https://github.com/germangb/minimp3-rs).
+The motivation for this crate is to create a pure Rust MP3 decoder that easily compiles to the `wasm32-unknown-unknown` target. No claims are made to speed, performance, or compatibility. For a more robust decoder, try [minimp3-rs](https://github.com/germangb/minimp3-rs).
 
 ## Support
 
-* MPEG-1/MPEG-2 Layer III
+* MPEG-1/MPEG-2/MPEG-2.5 Layer III
+
+## Example
+
+```
+let data = std::fs::read("tests/vectors/MonoCBR192.mp3").expect("Could not open file");
+let (header, samples) = puremp3::read_mp3(&data[..]).expect("Invalid MP3");
+for (left, right) in samples {
+    // Operate on samples here
+}
+```
 
 ## Prior art
 
