@@ -4,7 +4,6 @@
 /// and cpal for audio output.
 ///
 /// Usage: `playback file.mp3`
-
 use sample::{interpolate, signal, Frame, Signal};
 
 fn main() {

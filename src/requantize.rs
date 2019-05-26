@@ -1,6 +1,5 @@
-use crate::types::{BlockType, GranuleChannelSideInfo, MainDataChannel};
 use crate::tables::SCALE_FACTOR_BAND_INDICES;
-use crate::types::FrameHeader;
+use crate::types::{BlockType, FrameHeader, GranuleChannelSideInfo, MainDataChannel};
 
 pub fn requantize(
     header: &FrameHeader,

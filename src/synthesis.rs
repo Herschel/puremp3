@@ -1,5 +1,5 @@
-use crate::types::{BlockType, GranuleChannelSideInfo};
 use crate::tables::{SBS_N_WIN, SYNTH_DTBL};
+use crate::types::{BlockType, GranuleChannelSideInfo};
 use lazy_static::lazy_static;
 use std::f64::consts::PI;
 
