@@ -1,4 +1,6 @@
 # puremp3
+[![crates.io](https://img.shields.io/crates/v/puremp3.svg)](https://crates.io/crates/puremp3)
+[![docs.rs](https://docs.rs/puremp3/badge.svg)](https://docs.rs/puremp3)
 [![CircleCI](https://circleci.com/gh/Herschel/puremp3.svg?style=svg)](https://circleci.com/gh/Herschel/puremp3)
 
 An MP3 decoder written in pure Rust.
