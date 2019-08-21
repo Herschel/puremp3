@@ -64,7 +64,7 @@ fn playback(filename: &str) -> Result<(), Box<std::error::Error>> {
         } => write_samples(&mut signal, &out_format, &mut buffer),
 
         _ => unreachable!(),
-    });
+    })
 }
 
 /// Writes samples from the MP3 stream to the output audio stream.
