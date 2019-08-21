@@ -452,8 +452,8 @@ fn read_lfs_scale_factors<R: Read>(
     let (scale_lens, lfs_table) = if intensity_stereo_channel {
         let sfc = u32::from(channel_info.scalefac_compress / 2);
         match sfc {
-            0...179 => ([sfc / 36, (sfc % 36) / 6, sfc % 6, 0], &lfs_table[0]),
-            180...243 => (
+            0..=179 => ([sfc / 36, (sfc % 36) / 6, sfc % 6, 0], &lfs_table[0]),
+            180..=243 => (
                 [
                     ((sfc - 180) % 64) / 16,
                     ((sfc - 180) % 16) / 4,
@@ -462,21 +462,21 @@ fn read_lfs_scale_factors<R: Read>(
                 ],
                 &lfs_table[1],
             ),
-            244...255 => ([(sfc - 244) / 3, (sfc - 244) % 3, 0, 0], &lfs_table[2]),
+            244..=255 => ([(sfc - 244) / 3, (sfc - 244) % 3, 0, 0], &lfs_table[2]),
             _ => unreachable!(),
         }
     } else {
         let sfc = u32::from(channel_info.scalefac_compress);
         match sfc {
-            0...399 => (
+            0..=399 => (
                 [sfc / 80, (sfc / 16) % 5, (sfc % 16) / 4, sfc & 3],
                 &lfs_table[0],
             ),
-            400...499 => (
+            400..=499 => (
                 [(sfc - 400) / 20, ((sfc - 400) / 4) % 5, (sfc - 400) % 4, 0],
                 &lfs_table[1],
             ),
-            500...512 => ([(sfc - 500) / 3, (sfc - 500) % 3, 0, 0], &lfs_table[2]),
+            500..=512 => ([(sfc - 500) / 3, (sfc - 500) % 3, 0, 0], &lfs_table[2]),
             _ => unreachable!(),
         }
     };
