@@ -52,7 +52,9 @@ fn playback(filename: &str) -> Result<(), Box<dyn std::error::Error>> {
     let stream_id = event_loop
         .build_output_stream(&device, &out_format)
         .expect("Failed to create a stream");
-    event_loop.play_stream(stream_id.clone()).expect("Cannot play stream");
+    event_loop
+        .play_stream(stream_id.clone())
+        .expect("Cannot play stream");
 
     // Use the sample crate to convert the MP3 stream to the output stream format.
     let mut signal = signal::from_iter(samples.map(|sample| [sample.0, sample.1]));
