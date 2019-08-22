@@ -4,6 +4,10 @@
 //! and cpal for audio output.
 //!
 //! Usage: `playback file.mp3`
+use cpal::{
+    traits::{DeviceTrait, EventLoopTrait, HostTrait},
+    StreamData, UnknownTypeOutputBuffer,
+};
 use sample::{interpolate, signal, Frame, Signal};
 
 fn main() {
@@ -26,18 +30,29 @@ fn main() {
     }
 }
 
-fn playback(filename: &str) -> Result<(), Box<std::error::Error>> {
+fn playback(filename: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mp3_data = std::fs::read(filename)?;
 
     // Create the MP3 input stream.
     let (header, samples) = puremp3::read_mp3(&mp3_data[..])?;
 
     // Create the output audio stream using the cpal crate.
-    let device = cpal::default_output_device().ok_or("Failed to get default output device")?;
-    let out_format = device.default_output_format()?;
-    let event_loop = cpal::EventLoop::new();
-    let stream_id = event_loop.build_output_stream(&device, &out_format)?;
-    event_loop.play_stream(stream_id.clone());
+    let host = cpal::default_host();
+    let device = host
+        .default_output_device()
+        .ok_or("Failed to get default output device")?;
+    let format_range = device
+        .supported_output_formats()
+        .unwrap()
+        .next()
+        .ok_or("Failed to get endpoint format")?;
+    let mut out_format = format_range.with_max_sample_rate();
+    out_format.sample_rate = cpal::SampleRate(44_100);
+    let event_loop = host.event_loop();
+    let stream_id = event_loop
+        .build_output_stream(&device, &out_format)
+        .expect("Failed to create a stream");
+    event_loop.play_stream(stream_id.clone()).expect("Cannot play stream");
 
     // Use the sample crate to convert the MP3 stream to the output stream format.
     let mut signal = signal::from_iter(samples.map(|sample| [sample.0, sample.1]));
@@ -48,22 +63,30 @@ fn playback(filename: &str) -> Result<(), Box<std::error::Error>> {
         out_format.sample_rate.0.into(),
     );
 
-    // Run the stream.
-    use cpal::{StreamData, UnknownTypeOutputBuffer};
-    event_loop.run(move |_, data| match data {
-        StreamData::Output {
-            buffer: UnknownTypeOutputBuffer::F32(mut buffer),
-        } => write_samples(&mut signal, &out_format, &mut buffer),
+    event_loop.run(move |stream_id, buffer| {
+        let stream_data = match buffer {
+            Ok(data) => data,
+            Err(err) => {
+                eprintln!("an error occurred on stream {:?}: {}", stream_id, err);
+                return;
+            }
+        };
 
-        StreamData::Output {
-            buffer: UnknownTypeOutputBuffer::I16(mut buffer),
-        } => write_samples(&mut signal, &out_format, &mut buffer),
+        match stream_data {
+            StreamData::Output {
+                buffer: UnknownTypeOutputBuffer::F32(mut buffer),
+            } => write_samples(&mut signal, &out_format, &mut buffer),
 
-        StreamData::Output {
-            buffer: UnknownTypeOutputBuffer::U16(mut buffer),
-        } => write_samples(&mut signal, &out_format, &mut buffer),
+            StreamData::Output {
+                buffer: UnknownTypeOutputBuffer::I16(mut buffer),
+            } => write_samples(&mut signal, &out_format, &mut buffer),
 
-        _ => unreachable!(),
+            StreamData::Output {
+                buffer: UnknownTypeOutputBuffer::U16(mut buffer),
+            } => write_samples(&mut signal, &out_format, &mut buffer),
+
+            _ => unreachable!(),
+        }
     });
 }
 
