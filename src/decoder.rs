@@ -313,11 +313,26 @@ fn read_logical_frame_data<'a, R: Read>(
     let side_info_size = header.side_data_len();
     let main_data_size = header.data_size - side_info_size;
 
-    // Copy main_data_begin bytes from the previous frame(s).
+    // Copy main_data_begin bytes from the previous frame(s). A stream that
+    // starts mid-broadcast (e.g. a live internet radio connection) can hand
+    // us a first frame whose side info legitimately references reservoir
+    // bytes broadcast before the connection opened, which we never
+    // received -- frame_buffer_len can be smaller than main_data_begin at
+    // that point. Treat whatever portion we do not have as zero instead of
+    // underflowing frame_buffer_len - main_data_begin (which previously
+    // panicked with an out-of-bounds index): this costs a moment of
+    // imperfect audio on the very first frame or two of a live connection,
+    // after which frame_buffer has accumulated a real reservoir and every
+    // later frame decodes normally.
     let main_data_begin = side_info.main_data_begin as usize;
-    let prev_start = decoder.frame_buffer_len - main_data_begin;
-    for i in 0..main_data_begin {
-        decoder.frame_buffer[i] = decoder.frame_buffer[prev_start + i];
+    let available = main_data_begin.min(decoder.frame_buffer_len);
+    let missing = main_data_begin - available;
+    let prev_start = decoder.frame_buffer_len - available;
+    for i in 0..missing {
+        decoder.frame_buffer[i] = 0;
+    }
+    for i in 0..available {
+        decoder.frame_buffer[missing + i] = decoder.frame_buffer[prev_start + i];
     }
     decoder.frame_buffer_len = main_data_begin + main_data_size;
     reader.read_exact(&mut decoder.frame_buffer[main_data_begin..decoder.frame_buffer_len])?;
